@@ -9,94 +9,110 @@ lapply(list.of.packages, require, character.only = TRUE)
 # Importació del codi del shiny_interface:
 source("shiny_interface.R")
 
-
-
 # BLOC DEL UI:
 ui <- fluidPage(
   titlePanel("Cost-effectiveness simulation"),
   sidebarLayout(
     sidebarPanel(
-
-      #checkbox per seleccionar les diferents estrategies del get.strategies() des de la source:
+      style = "height: 90vh; overflow-y: auto;",
+      
+      h4("Strategy selection:"),
+      
+      # Checkbox per seleccionar les diferents estratègies del get.strategies() des de la source:
       checkboxGroupInput("strategies", "Select strategies:",
                          choices = get.strategies(),
                          selected = get.strategies()),  # Totes seleccionades per defecte
-
-      actionButton("select_all", "Select All"),      # Botó per seleccionar-les totes
-      actionButton("deselect_all", "Deselect All"),  # Botó per desseleccionar-les totes
-
+      
+      div(style = "display: flex; gap: 4px;",
+          actionButton("select_all", "Select All"),      # Botó per seleccionar-les totes
+          actionButton("deselect_all", "Deselect All")),  # Botó per desseleccionar-les totes
+      
+      h4("Parameter values:"),
+      
       lapply(get.parameters(), function(p) {
-        probabilitats <- c("p.healthy.cancer", "p.healthy.death", "p.cancer.death",
-                           "p.screening.effective", "p.treatment.effective", "discount")
-
-        if (p$name %in% probabilitats) {
+        probabilitats <- grepl("^p\\.", p$name)  # Detecta paràmetres que comencen amb 'p.'
+        
+        if (probabilitats) {
           max.value <- 1  # Per probabilitats, el màxim ha de ser 1
         } else if (!is.null(p$max.value)) {
           max.value <- p$max.value  # Si té un max.value ja definit en el model, l'assignem
         } else {
           max.value <- p$base.value * 4  # Si no té max.value, assignem base.value * 4
         }
-
-        sliderInput(p$name, p$name, min = 0, max = max.value, value = p$base.value)
+        
+        numericInput(p$name, p$name, value = p$base.value, min = 0, max = max.value)
       }),
-
-      actionButton("reset", "Reset to Default")     #Botó per fer reset dels paràmetres:
+      
+      # Botó per fer reset dels paràmetres:
+      actionButton("reset", "Reset to Default")    
     ),
-
+    
     mainPanel(
-      tableOutput("resultsTable"),
-      plotlyOutput("resultsPlot")
+      actionButton("run", "Run simulation"),
+      br(),
+      h4("Table of results:"),
+      tableOutput("resultsTable"), # Col·locació de la taula
+      downloadButton("downloadData", "Download"),
+      br(), br(),
+      h4("Results Plot:"),
+      plotlyOutput("resultsPlot")  # Col·locació del gràfic
     )
   )
 )
 
-
-
 # BLOC DEL SERVER:
-
 server <- function(input, output, session) {
   # Execució del botó select_all, se seleccionen totes les estratègies:
   observeEvent(input$select_all, {
     updateCheckboxGroupInput(session, "strategies", selected = get.strategies())
   })
-
+  
   # Execució del botó deselect_all, es desseleccionen totes les estratègies:
   observeEvent(input$deselect_all, {
     updateCheckboxGroupInput(session, "strategies", selected = character(0))  # Cap seleccionada
   })
-
-  # Execució del Botó de Reset dels paràmatres
+  
+  # Execució del Botó de Reset dels paràmetres
   observeEvent(input$reset, {
     lapply(get.parameters(), function(p) {
-      updateSliderInput(session, p$name, value = p$base.value)
+      updateNumericInput(session, p$name, value = p$base.value)  # Canviem updateSliderInput() per updateNumericInput()
     })
   })
-
-  # Resultats en temps real amb reactive:
-  results <- reactive({
-    params <- lapply(get.parameters(), function(p) input[[p$name]])
+  
+  # Resultats quan es prem el botó Run:
+  results <- eventReactive(input$run, {
+    params <- lapply(get.parameters(), function(p) input[[p$name]])  
     names(params) <- sapply(get.parameters(), function(p) p$name)
-    run.simulation(input$strategies, params)  #executa la simulació amb estratègies i paràmetres
+    run.simulation(input$strategies, params)  # Passa una llista d'estratègies
   })
-
-  # Taula de resultats:
-  output$resultsTable <- renderTable({
-    # summary dels resultats generats en la simulació a temps real (bloc anterior)
+  
+  # Anàlisis amb la funció analyzeCE de CEAModel dins un reactive per ser usat en altres moments:
+  ce_analysis <- reactive({
     taula_resultats <- results()$summary
-    # Anàlisis cost-efectivitat del CEAModel passant-li la taula de resultats anterior
-    ce_analysis <- CEAModel::analyzeCE(taula_resultats, plot = TRUE)
-    # Display del summary de la taula extesa (amb ICER):
-    ce_analysis$summary
+    CEAModel::analyzeCE(taula_resultats, plot = TRUE)
+  }) 
+  
+  # Taula de resultats a partir del anàlisis de CEAModel:
+  output$resultsTable <- renderTable({
+    ce_analysis()$summary
   })
-
+  
+  # Downloadable CSV
+  output$downloadData <- downloadHandler(
+    filename = function() {
+      paste("results_table", ".csv", sep = "")
+    },
+    content = function(file) {
+      write.csv(ce_analysis()$summary, file, row.names = FALSE)
+    }
+  )
+  
   # Gràfic interactiu
   output$resultsPlot <- renderPlotly({
-    taula_resultats <- results()$summary
-    # Executa l'anàlisi de cost-efectivitat
-    ce_analysis <- CEAModel::analyzeCE(taula_resultats, plot = TRUE)
-    # Retorna el gràfic interactiu
-    ggplotly(ce_analysis$plot)
+    ggplotly(ce_analysis()$plot)
   })
+
 }
 
 shinyApp(ui = ui, server = server)
+

@@ -10,14 +10,7 @@ get.parameters <- function() {
   return(list(
     list(
       name='p.healthy.cancer',
-      base.value=0.01,
-      max.value=1
-    ),
-    list(
-      name='p.healthy.cancer',
-      base.value=0.01,
-      max.value=1,
-      stratum='35-40'
+      base.value=0.01
     ),
     list(
       name='p.healthy.death',

@@ -16,7 +16,7 @@ simulate <- function(strategies,
     state.costs <- c(0, 0, 0)
     state.utilities <- c(1, utility.cancer, 0)
 
-    if (strategy == 'no_intervention') {
+    if (strategy == 'untreated') {
       state.costs[1] <- 0
       state.costs[2] <- 0
       p.cancer <- p.healthy.cancer
@@ -37,7 +37,7 @@ simulate <- function(strategies,
                           p.cancer.healthy, 1-p.cancer.healthy-p.cancer.death, p.cancer.death,
                           0, 0, 1),
                         nrow=3, byrow = TRUE)
-  #Sys.sleep(3)
+  Sys.sleep(3)
 
     costs <- c()
     utilities <- c()

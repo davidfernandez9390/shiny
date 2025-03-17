@@ -3,29 +3,30 @@ library(ggplot2)
 source('model.R')
 
 get.strategies <- function() {
-  return(c('no_intervention', 'screening', 'treatment'))
+  return(c('untreated', 'screening', 'treatment'))
 }
 
 get.parameters <- function() {
   return(list(
     list(
       name='p.healthy.cancer',
-      base.value=0.01,
-      max.value=1
+      base.value=0.05,
+      max.value=1,
+      stratum="30-35"
     ),
     list(
       name='p.healthy.cancer',
-      base.value=0.01,
+      base.value=0.09,
       max.value=1,
-      stratum='35-40'
+      stratum="35-40"
     ),
     list(
       name='p.healthy.death',
-      base.value=0.001
+      base.value=0.005
     ),
     list(
       name='p.cancer.death',
-      base.value=0.3
+      base.value=0.5
     ),
     list(
       name='p.screening.effective',
@@ -37,7 +38,7 @@ get.parameters <- function() {
     ),
     list(
       name='cost.screening',
-      base.value=100
+      base.value=500
     ),
     list(
       name='cost.cancer.treatment',
@@ -46,7 +47,7 @@ get.parameters <- function() {
     ),
     list(
       name='utility.cancer',
-      base.value=0.6
+      base.value=0.5
     ),
     list(
       name='simulated.years',

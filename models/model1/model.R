@@ -37,7 +37,7 @@ simulate <- function(strategies,
                           p.cancer.healthy, 1-p.cancer.healthy-p.cancer.death, p.cancer.death,
                           0, 0, 1),
                         nrow=3, byrow = TRUE)
-  #Sys.sleep(3)
+  Sys.sleep(3)
 
     costs <- c()
     utilities <- c()
