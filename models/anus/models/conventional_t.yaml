@@ -1,0 +1,30 @@
+cytology:
+  description: Cytology
+  cost: c_cyto
+  sensitivity: p_cyto_b___hsil, p_cyto_hsil___hsil, _
+  specificity_c: p_cyto_b___no_hsil, p_cyto_hsil___no_hsil, _
+  children:
+    # Cyto benign
+    - annual_followup:
+        in_transition: benign
+        description: Annual followup
+        cost: c_followup
+        sensitivity: 1
+        specificity: 1
+        children:
+            - followup_hsil:
+                in_transition: hsil
+                description: HSIL
+            - followup_no_hsil:
+                in_transition: no hsil
+                description: No HSIL
+    # Cyto HSIL
+    - hra___cyto_hsil:
+        in_transition: HSIL
+        include: '_hra_treatment___cyto_hsil.yaml'
+        suffix: 'cyto_hsil'
+    # Cyto not benign nor HSIL
+    - hra___cyto_no_hsil:
+        in_transition: not benign, no HSIL
+        include: '_hra_treatment___cyto_no_hsil.yaml'
+        suffix: 'cyto_not_b_no_hsil'
