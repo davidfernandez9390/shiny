@@ -1,6 +1,7 @@
 library(ggplot2)
 
-source('model.R')
+source("model.R")
+
 
 get.strategies <- function() {
   return(c('no_intervention', 'screening', 'treatment'))
