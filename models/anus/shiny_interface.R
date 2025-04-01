@@ -86,7 +86,19 @@ run.simulation <- function(strategies, pars) {
                       start.age=pars$starting.age,
                       max.age=pars$max.age,
                       discount.rate=pars$discount)
+  
+  results$summary$hsil_incidence <- sapply(results$info, function(strat) {
+    return(mean(strat$additional.info$incidence_hsil) * 2)
+  })
+  results$summary$n_cyto <- sapply(results$info, function(strat) {
+    return(mean(strat$additional.info$n_cyto))
+  })
+  results$summary$n_hpv <- sapply(results$info, function(strat) {
+    return(mean(strat$additional.info$n_hpv))
+  })
   return(results)
 }
 
-
+# params <- lapply(get.parameters(), function(p) p$base.value)
+# names(params) <- sapply(get.parameters(), function(p) p$name)
+# run.simulation(c('conventional'), params)
