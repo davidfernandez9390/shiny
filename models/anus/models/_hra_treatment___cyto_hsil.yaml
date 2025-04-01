@@ -1,0 +1,55 @@
+hra:
+  description: High Resolution Anoscopy
+  cost: c_hra_treatment
+  sensitivity: p_hra_invasive_cancer___cyto_hsil__hsil
+  specificity_c: p_hra_invasive_cancer___cyto_hsil__no_hsil
+  children:
+    - surgery:
+        in_transition: invasive cancer
+        description: Colorrectal surgery
+        cost: c_surgery
+        sensitivity: p_cancer___hra_invasive_cancer
+        specificity: 1
+        children:
+            - surgery_cancer:
+                in_transition: cancer
+                description: Cancer
+            - surgery_no_cancer:
+                in_transition: no cancer
+                description: No cancer
+    - hra_result:
+        in_transition: no invasive cancer
+        description: HRA result
+        cost: 0
+        sensitivity: p_hra_hsil___cyto_hsil__hsil
+        specificity_c: p_hra_hsil___cyto_hsil__no_hsil
+        children:
+            - semestral_followup_hsil_treatment:
+                # Cyto and HRA HSIL
+                # HRA HSIL -> Treatment
+                in_transition: HRA HSIL
+                description: Treatment -> Semestral followup
+                cost: c_followup_treatment
+                sensitivity: 1
+                specificity: 1
+                children:
+                    - semestral_followup_hsil_treatment:
+                        in_transition: hsil
+                        description: HSIL (treatment)
+                    - semestral_followup_no_hsil_treatment:
+                        in_transition: no hsil
+                        description: No HSIL (treatment)
+            - semestral_followup_hsil:
+                # Cyto HSIL, HRA no HSIL -> diagnosis = HSIL
+                in_transition: HRA no HSIL
+                description: Semestral followup
+                cost: c_followup
+                sensitivity: 1
+                specificity: 1
+                children:
+                    - semestral_followup_hsil:
+                        in_transition: hsil
+                        description: HSIL
+                    - semestral_followup_no_hsil:
+                        in_transition: no hsil
+                        description: No HSIL

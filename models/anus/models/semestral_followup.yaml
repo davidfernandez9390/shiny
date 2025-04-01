@@ -1,0 +1,65 @@
+cytology:
+  description: Cytology
+  cost: c_cyto
+  sensitivity: p_cyto_hsil___hsil, _
+  specificity_c: p_cyto_hsil___no_hsil, _
+  children:
+    # Cyto HSIL
+    - hra___cyto_hsil:
+        in_transition: HSIL
+        description: High Resolution Anoscopy
+        cost: c_hra_followup
+        sensitivity: p_hra_invasive_cancer___cyto_hsil__hsil
+        specificity_c: p_hra_invasive_cancer___cyto_hsil__no_hsil
+        children:
+            - surgery:
+                in_transition: invasive cancer
+                description: Colorrectal surgery
+                cost: c_surgery
+                sensitivity: p_cancer___hra_invasive_cancer
+                specificity: 1
+                children:
+                    - surgery_cancer:
+                        in_transition: cancer
+                        description: cancer
+                    - surgery_no_cancer:
+                        in_transition: no cancer
+                        description: No cancer
+            - semestral_followup_hsil:
+                # Cyto HSIL, HRA result not important
+                in_transition: no invasive cancer
+                description: Semestral followup
+    # Cyto no HSIL
+    - hra___cyto_no_hsil:
+        in_transition: no HSIL
+        description: High Resolution Anoscopy
+        cost: c_hra_followup
+        sensitivity: p_hra_invasive_cancer___cyto_no_hsil__hsil
+        specificity_c: p_hra_invasive_cancer___cyto_no_hsil__no_hsil
+        children:
+            - surgery:
+                in_transition: invasive cancer
+                description: Colorrectal surgery
+                cost: c_surgery
+                sensitivity: p_cancer___hra_invasive_cancer
+                specificity: 1
+                children:
+                    - surgery_cancer:
+                        in_transition: cancer
+                        description: cancer
+                    - surgery_no_cancer:
+                        in_transition: no cancer
+                        description: No cancer
+            - semestral_followup:
+                in_transition: no invasive cancer
+                description: HRA result
+                sensitivity: p_hra_hsil___cyto_no_hsil__hsil
+                specificity_c: p_hra_hsil___cyto_no_hsil__no_hsil
+                children:
+                    - semestral_followup_hsil:
+                        in_transition: hsil
+                        description: HSIL
+                    - semestral_followup_no_hsil:
+                        # Cyto and HRA no HSIL
+                        in_transition: no hsil
+                        description: No HSIL

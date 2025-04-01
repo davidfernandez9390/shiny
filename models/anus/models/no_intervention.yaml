@@ -1,0 +1,12 @@
+no_intervention:
+    description: No intervention
+    cost: 0
+    sensitivity: 1
+    specificity: 1
+    children:
+        - no_intervention_hsil:
+            in_transition: hsil
+            description: HSIL
+        - no_intervention_no_hsil:
+            in_transition: no hsil
+            description: No HSIL

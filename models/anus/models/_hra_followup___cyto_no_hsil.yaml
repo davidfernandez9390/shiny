@@ -1,0 +1,53 @@
+hra:
+  description: High Resolution Anoscopy
+  cost: c_hra_followup
+  sensitivity: p_hra_invasive_cancer___cyto_no_hsil__hsil
+  specificity_c: p_hra_invasive_cancer___cyto_no_hsil__no_hsil
+  children:
+    - surgery:
+        in_transition: invasive cancer
+        description: Colorrectal surgery
+        cost: c_surgery
+        sensitivity: p_cancer___hra_invasive_cancer
+        specificity: 1
+        children:
+            - surgery_cancer:
+                in_transition: cancer
+                description: Cancer
+            - surgery_no_cancer:
+                in_transition: no cancer
+                description: No cancer
+    - hra_result:
+        in_transition: no invasive cancer
+        description: HRA result
+        cost: 0
+        sensitivity: p_hra_hsil___cyto_no_hsil__hsil
+        specificity_c: p_hra_hsil___cyto_no_hsil__no_hsil
+        children:
+            - semestral_followup:
+                in_transition: HRA HSIL
+                description: Semestral followup
+                cost: c_followup
+                sensitivity: 1
+                specificity: 1
+                children:
+                    - semestral_followup_hsil___hra:
+                        in_transition: hsil
+                        description: HSIL (HRA diagnosis)
+                        # Count as HSIL incidence only if confirmed by HRA
+                    - semestral_followup_no_hsil___hra:
+                        in_transition: no hsil
+                        description: No HSIL (HRA diagnosis)
+            - annual_followup:
+                in_transition: HRA no HSIL
+                description: Annual followup
+                cost: c_followup
+                sensitivity: 1
+                specificity: 1
+                children:
+                    - followup_hsil:
+                        in_transition: hsil
+                        description: HSIL
+                    - followup_no_hsil:
+                        in_transition: no hsil
+                        description: No HSIL

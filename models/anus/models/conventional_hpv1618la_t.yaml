@@ -1,0 +1,60 @@
+hpv1618_la:
+  description: HPV 16/18 (LA)
+  cost: c_hpv1618la
+  sensitivity: p_hpv1618la_p___hsil
+  specificity_c: p_hpv1618la_p___no_hsil
+  children:
+    - cytology:
+        in_transition: HPV +
+        description: Cytology
+        cost: c_cyto
+        sensitivity: p_cyto_b___hsil, p_cyto_hsil___hsil, _
+        specificity_c: p_cyto_b___no_hsil, p_cyto_hsil___no_hsil, _
+        children:
+            # Cyto benign
+            - hra___cyto_b:
+                in_transition: benign
+                include: '_hra_treatment___cyto_no_hsil.yaml'
+                suffix: 'cyto_not_b_no_hsil'
+            # Cyto HSIL
+            - hra___cyto_hsil:
+                in_transition: HSIL
+                include: '_hra_treatment___cyto_hsil.yaml'
+                suffix: 'cyto_hsil'
+            # Cyto not benign nor HSIL
+            - hra___cyto_no_hsil:
+                in_transition: not benign, no HSIL
+                include: '_hra_treatment___cyto_no_hsil.yaml'
+                suffix: 'cyto_not_b_no_hsil'
+    - cytology:
+        in_transition: HPV -
+        description: Cytology
+        cost: c_cyto
+        sensitivity: p_cyto_b___hsil, p_cyto_hsil___hsil
+        specificity_c: p_cyto_b___no_hsil, p_cyto_hsil___no_hsil
+        children:
+            # Cyto benign
+            - annual_followup:
+                in_transition: benign
+                description: Annual followup
+                cost: c_followup
+                sensitivity: 1
+                specificity: 1
+                children:
+                    - followup_hsil:
+                        in_transition: hsil
+                        description: HSIL
+                    - followup_no_hsil:
+                        in_transition: no hsil
+                        description: No HSIL
+            # Cyto HSIL
+            - hra___cyto_hsil:
+                in_transition: hsil
+                include: '_hra_treatment___cyto_hsil.yaml'
+                suffix: 'cyto_hsil'
+            # Cyto not benign nor HSIL
+            - hra___cyto_no_hsil:
+                in_transition: not benign, no HSIL
+                include: '_hra_treatment___cyto_no_hsil.yaml'
+                suffix: 'cyto_not_b_no_hsil'
+

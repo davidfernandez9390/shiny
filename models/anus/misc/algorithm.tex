@@ -1,0 +1,127 @@
+\documentclass{article}
+
+\usepackage[latin1]{inputenc}
+\usepackage{tikz}
+\usetikzlibrary{shapes,arrows}
+\usepackage{geometry}
+\geometry{verbose,tmargin=1cm,bmargin=2cm,lmargin=2cm,rmargin=2cm}
+
+%%%<
+\usepackage{verbatim}
+\usepackage[active,tightpage]{preview}
+\PreviewEnvironment{tikzpicture}
+\setlength\PreviewBorder{150pt}%
+%%%>
+
+\begin{comment}
+:Title: Simple flow chart
+:Tags: Diagrams
+
+With PGF/TikZ you can draw flow charts with relative ease. This flow chart from [1]_
+outlines an algorithm for identifying the parameters of an autonomous underwater vehicle model.
+
+Note that relative node
+placement has been used to avoid placing nodes explicitly. This feature was
+introduced in PGF/TikZ >= 1.09.
+
+.. [1] Bossley, K.; Brown, M. & Harris, C. Neurofuzzy identification of an autonomous underwater vehicle `International Journal of Systems Science`, 1999, 30, 901-913
+
+
+\end{comment}
+
+
+\begin{document}
+\pagestyle{empty}
+
+
+% Define block styles
+\tikzstyle{decision} = [diamond, draw, fill=blue!20,
+    text width=8.5em, text centered, node distance=3cm, inner sep=0pt]
+\tikzstyle{block} = [rectangle, draw, fill=blue!20,
+    text width=8em, text centered, rounded corners, minimum height=4em]
+\tikzstyle{line} = [draw, -latex']
+\tikzstyle{cloud} = [draw, ellipse,fill=red!20, node distance=3cm,
+    minimum height=2em]
+
+\begin{tikzpicture}[node distance = 2cm, auto]
+    % Place nodes
+    \node [block] (init) {VIH + MSM};
+    \node [decision, below of=init, node distance=8cm] (identify) {HR-DNA-HPV + Cytology};
+    \node [block, left of=identify, node distance=8cm] (evaluate) {Benign cytology};
+    \node [block, right of=identify, node distance=8cm] (update) {ASCUS-LSIL-HSIL};
+    \node [block, below of=evaluate, node distance=8cm] (decide) {Annual control};
+    \node [decision, below of=update, node distance=8cm] (stop) {HRA Anoscopy};
+    \node [block, left of=stop, node distance=8cm] (ano_norm) {Normal Anoscopy};
+    \node [block, right of=stop, node distance=8cm] (ano_abnorm) {Abnormal Anoscopy};
+    \node [block, below of=ano_norm, node distance=8cm] (anual2) {Annual control};
+    \node [decision, below of=ano_abnorm, node distance=8cm] (biopsia) {Biopsy};
+    \node [block, left of=biopsia, node distance=8cm] (bio_lsil) {LSIL};
+    \node [block, below of=bio_lsil, node distance=8cm] (bio_lsil2) {Semestral control};
+    \node [block, below of=biopsia, node distance=8cm] (bio_hsil) {HSIL};
+    \node [block, below of=bio_hsil, node distance=8cm] (bio_hsil2) {Local treatment};
+    \node [block, right of=biopsia, node distance=8cm] (bio_invas) {Invasive cancer};
+    \node [block, below of=bio_invas, node distance=8cm] (bio_invas2) {Surgery};
+
+% Draw edges
+    \path [line] (init) -- (identify);
+    \path [line] (identify) -- node {p = 0.4; Utilities = 1} (evaluate);
+    \path [line] (identify) -- node {p = 0.6} (update);
+    \path [line] (evaluate) -- (decide);
+    \path [line] (update) -- (stop);
+    \path [line] (stop) -- node {p = 0.6; Utilities = 0.97} (ano_norm);
+    \path [line] (stop) -- node {p = 0.4} (ano_abnorm);
+    \path [line] (ano_norm) -- (anual2);
+    \path [line] (ano_abnorm) -- (biopsia);
+    \path [line] (biopsia) -- node {p = 0.3; Utilities = 0.87} (bio_lsil);
+    \path [line] (biopsia) -- node {p = 0.3; Utilities = 0.76} (bio_hsil);
+    \path [line] (biopsia) -- node {p = 0.4; Utilities = 0.67} (bio_invas);
+    \path [line] (bio_lsil) -- (bio_lsil2);
+    \path [line] (bio_hsil) -- (bio_hsil2);
+    \path [line] (bio_invas) -- (bio_invas2);
+\end{tikzpicture}
+
+\newpage
+
+\begin{tikzpicture}[node distance = 2cm, auto]
+    % Place nodes
+    \node [decision] (init) {Biomarker E6/E7 + Cytology};
+    \node [block, below of=init, node distance=8cm] (identify) {Benign/ASCUS/LSIL Cytology + NEG BIOMARKER};
+    \node [block, right of=identify, node distance=8cm] (identify2) {HSIL Cytology + NEG BIOMARKER};
+    \node [block, right of=identify2, node distance=8cm] (identify3) {Benign Cytology + POS BIOMARKER};
+    \node [block, right of=identify3, node distance=8cm] (identify4) {Abnormal Cytology + POS BIOMARKER};
+    \node [block, below of=identify, node distance=8cm] (annual) {Annual control};
+    \node [decision, below of=identify3, node distance=8cm] (anoscopy) {Anoscopy};
+    \node [block, left of=anoscopy, node distance=8cm] (ano_norm) {Normal Anoscopy};
+    \node [block, right of=anoscopy, node distance=8cm] (ano_abnorm) {Abnormal Anoscopy};
+    \node [block, below of=ano_norm, node distance=8cm] (anual2) {Annual control};
+    \node [decision, below of=ano_abnorm, node distance=8cm] (biopsia) {Biopsy};
+    \node [block, left of=biopsia, node distance=8cm] (bio_lsil) {LSIL};
+    \node [block, below of=bio_lsil, node distance=8cm] (bio_lsil2) {Semestral control};
+    \node [block, below of=biopsia, node distance=8cm] (bio_hsil) {HSIL};
+    \node [block, below of=bio_hsil, node distance=8cm] (bio_hsil2) {Local treatment};
+    \node [block, right of=biopsia, node distance=8cm] (bio_invas) {Invasive cancer};
+    \node [block, below of=bio_invas, node distance=8cm] (bio_invas2) {Surgery};
+
+    % Draw edges
+    \path [line] (init) -- node {p = 0.2; Utilities = 1} (identify);
+    \path [line] (init) -- node {p = 0.2} (identify2);
+    \path [line] (init) -- node {p = 0.3} (identify3);
+    \path [line] (init) -- node {p = 0.3} (identify4);
+    \path [line] (identify) -- (annual);
+    \path [line] (identify2) -- (anoscopy);
+    \path [line] (identify3) -- (anoscopy);
+    \path [line] (identify4) -- (anoscopy);
+    \path [line] (anoscopy) -- node {p = 0.6; Utilities = 0.97} (ano_norm);
+    \path [line] (anoscopy) -- node {p = 0.4} (ano_abnorm);
+    \path [line] (ano_norm) -- (anual2);
+    \path [line] (ano_abnorm) -- (biopsia);
+    \path [line] (biopsia) -- node {p = 0.3; Utilities = 0.87} (bio_lsil);
+    \path [line] (biopsia) -- node {p = 0.3; Utilities = 0.76} (bio_hsil);
+    \path [line] (biopsia) -- node {p = 0.4; Utilities = 0.67} (bio_invas);
+    \path [line] (bio_lsil) -- (bio_lsil2);
+    \path [line] (bio_hsil) -- (bio_hsil2);
+    \path [line] (bio_invas) -- (bio_invas2);
+\end{tikzpicture}
+
+
+\end{document} 

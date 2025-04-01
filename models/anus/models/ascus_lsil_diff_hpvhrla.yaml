@@ -1,0 +1,47 @@
+cytology:
+    description: Cytology
+    cost: c_cyto
+    sensitivity: p_cyto_b___hsil, p_cyto_ascus_or_lsil___hsil, _
+    specificity_c: p_cyto_b___no_hsil, p_cyto_ascus_or_lsil___no_hsil, _
+    children:
+        - annual_followup:
+            in_transition: benign
+            description: Annual followup
+            cost: c_followup
+            sensitivity: 1
+            specificity: 1
+            children:
+                - followup_hsil:
+                    in_transition: hsil
+                    description: HSIL
+                - followup_no_hsil:
+                    in_transition: no hsil
+                    description: No HSIL
+        - hpvhrla:
+            in_transition: ASCUS or LSIL
+            description: HPV-HR (LA)
+            cost: c_hpvhrla
+            sensitivity: p_hpvhrla_p___hsil
+            specificity_c: p_hpvhrla_p___no_hsil
+            children: 
+                - hra___cyto_ascus_lsil:
+                    in_transition: HPV +
+                    include: '_hra_followup___cyto_no_hsil.yaml'
+                    suffix: 'cyto_ascus_lsil'
+                - annual_followup:
+                    in_transition: HPV -
+                    description: Annual followup
+                    cost: c_followup
+                    sensitivity: 1
+                    specificity: 1
+                    children:
+                        - followup_hsil:
+                            in_transition: hsil
+                            description: HSIL
+                        - followup_no_hsil:
+                            in_transition: no hsil
+                            description: No HSIL
+        - hra___cyto_hsil:
+            in_transition: hsil
+            include: '_hra_followup___cyto_hsil.yaml'
+            suffix: 'cyto_hsil'
