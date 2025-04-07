@@ -36,7 +36,7 @@ ui <- fluidPage(
         uiOutput("strategies_ui"),
         type=4, size=0.3,
         caption = div(strong("loading model"))),
-    
+      
       div(style = "display: flex; gap: 4px;",
           actionButton("select_all", "Select All"),
           actionButton("deselect_all", "Deselect All")
@@ -63,7 +63,7 @@ ui <- fluidPage(
       tableOutput("resultsTable"), 
       downloadButton("downloadData", "Download"),
       br(),
-
+      
     )
   )
 )
@@ -71,11 +71,9 @@ ui <- fluidPage(
 # SERVER
 server <- function(input, output, session) {
   
-  #Selecció del model:
   observeEvent(input$load_model, {  
     selected_model_info <- get.models.repo()[[which(sapply(get.models.repo(), function(x) x$name) == input$selected_model)]]
     
-    # missatge d'error i es para la selecció si no hi ha URL no és vàlid (potser canviar això si es vol reutilitzar per seleccionar també carpetes)
     if (is.null(selected_model_info$url)) {
       showNotification("Choose a valid model", type = "error")
       return()
@@ -83,16 +81,14 @@ server <- function(input, output, session) {
     
     model_path <- file.path("models_cloned", input$selected_model)
     
-    # si no hi ha carpetes dels models, missatge de clonar i clonar amb git2r::clone()
     if (!dir.exists(model_path)) {
       showNotification(paste("cloning repository:", input$selected_model), type = "message")
       git2r::clone(selected_model_info$url, local_path = model_path)
-      #si ja hi ha carpetes, no clonar res i mostrar el warning de que ja és present
     } else {
       showNotification("model already existing in PC", type = "warning")
     }
     
-    # Carregar shiny_interface.R del model seleccionat buscant a la caerpeta indicada
+    # Carregar shiny_interface.R del model seleccionat
     model_dir <- file.path(model_path)
     # Resetjear les funcions antigues per evitar problemes al carregar nou model
     rm(list = c("run.simulation", "get.strategies", "get.parameters"), envir = .GlobalEnv)
@@ -148,21 +144,37 @@ server <- function(input, output, session) {
     })
   })
   
-  # Execució de la simulació amb barra de progrés
+  # Execució de la simulació amb barra de progrés amb Progress object
   results <- eventReactive(input$run, {
-    # Definir el progrés
-    withProgress(message = 'Running simulation...', {
-      params <- lapply(get.parameters(), function(p) input[[p$name]])  
-      names(params) <- sapply(get.parameters(), function(p) p$name)
-      result <- run.simulation(input$strategies, params)
-      result
-    })
+    progress <- shiny::Progress$new()
+    on.exit(progress$close())  # Tancar la barra de progrés quan acabi
+    
+    progress$set(message = "Running simulation...", value = 0)
+    
+    params <- lapply(get.parameters(), function(p) input[[p$name]])
+    names(params) <- sapply(get.parameters(), function(p) p$name)
+    
+    results_list <- list()  # Llista per emmagatzemar cada resultat
+    
+    #bucle per iterar les estratègies seleccionades en el checkbox_input:
+    for (i in seq_along(input$strategies)) {
+      strategy <- input$strategies[i]
+      result <- run.simulation(strategy, params)
+      
+      #s'emmagatzema el summary del run.simulation() com a element en la llista
+      results_list[[i]] <- result$summary
+      
+      # Actualitzar la barra de progrés usant el número de i sobre el total d'estratègies marcades al checkbox
+      progress$inc(1 / length(input$strategies), 
+                   detail = paste("Processing:", strategy, round(i / length(input$strategies) * 100), "% done"))
+    }
+    
+    return(do.call(rbind, results_list))  # S'uneixen totes les files per crear la taula
   })
-  
   
   # Mostrem la taula de resultats
   output$resultsTable <- renderTable({
-    taula_resultats <- results()$summary
+    taula_resultats <- results()
     ce_analysis <- CEAModel::analyzeCE(taula_resultats, plot = TRUE)
     ce_analysis$summary
   })
@@ -179,10 +191,134 @@ server <- function(input, output, session) {
   
   # Gràfic interactiu
   output$resultsPlot <- renderPlotly({
-    taula_resultats <- results()$summary
+    taula_resultats <- results()
     ce_analysis <- CEAModel::analyzeCE(taula_resultats, plot = TRUE)
     ggplotly(ce_analysis$plot)
   })
+}
+
+plot.tornado <- function(results,
+                         WTP=22000,
+                         use.nhb=TRUE,
+                         param.order=NULL,
+                         param.display.names=NULL,
+                         show.points=FALSE,
+                         truncate.icers=NULL,
+                         bar.color='blue',
+                         plot=NULL) {
+  if (is.character(results)) {
+    # If character, assume it is a file path with the results data
+    results <- read.csv(results)
+  }
+  results$NHB <- results$IE - results$IC/WTP
+  results$ICER <- results$IC / results$IE
+  
+  base.params <- results[is.na(results$param),][1,]
+  if (use.nhb) {
+    base <- base.params$NHB
+    base.label <- 'NHB'
+  } else {
+    base <- base.params$ICER
+    base.label <- 'ICER'
+  }
+  results <- results[!is.na(results$param),]
+  
+  plot.df <- data.frame()
+  scatter.df <- data.frame()
+  for(p in unique(results$param)) {
+    sub.df <- results[results$param==p,]
+    par.range <- range(sub.df$param.value)
+    if (diff(par.range) != 0) {
+      measure.par.range <- sapply(par.range, function(v) sub.df[sub.df$param.value == v, base.label])
+    } else {
+      # If range width = 0, the NHB is the same
+      measure.par.range <- rep(sub.df[1, base.label], 2)
+    }
+    if (!is.null(param.display.names)) {
+      p.display <- param.display.names[[p]]
+      if (is.null(p.display)) {
+        p.display <- p
+      }
+    } else {
+      p.display <- p
+    }
+    if (diff(measure.par.range) > 0) {
+      label <- paste0(p.display, '\n[', formatC(par.range[1], format='fg', digits=3), ' - ', formatC(par.range[2], format='fg', digits=3), ']')
+    } else {
+      label <- paste0(p.display, '\n[', formatC(par.range[2], format='fg', digits=3), ' - ', formatC(par.range[1], format='fg', digits=3), ']')
+    }
+    plot.df <- rbind(plot.df,
+                     data.frame(
+                       # strategy=results$strategy[1],
+                       param=p,
+                       label=label,
+                       min.v=min(measure.par.range),
+                       max.v=max(measure.par.range),
+                       width=abs(diff(measure.par.range))
+                     ))
+    scatter.df <- rbind(scatter.df,
+                        data.frame(
+                          # strategy=results$strategy[1],
+                          param=p,
+                          measure=sub.df[[base.label]]
+                        ))
+  }
+  if (!is.null(param.order)) {
+    plot.df <- plot.df[match(param.order, plot.df$param),]
+  } else {
+    plot.df <- plot.df[order(plot.df$width),]
+  }
+  
+  ordered.pars <- plot.df[!duplicated(plot.df$param), 'param']
+  plot.df$pos <- sapply(plot.df$param, function(p) match(p, ordered.pars))
+  scatter.df$pos <- sapply(scatter.df$param, function(p)plot.df[plot.df$param==p,]$pos[1])
+  
+  breaks <- seq(max(plot.df$pos))
+  labels <- sapply(breaks, function(b) plot.df[plot.df$pos==b,]$label[1])
+  if (is.null(plot)) {
+    if (use.nhb) {
+      x.label <- 'NHB (QALY)'
+    } else {
+      x.label <- 'ICER (€/QALY)'
+    }
+    if (!use.nhb) {
+      format.labels <- function(x) {
+        formatC(x, format='d', big.mark = ',')
+      }
+    } else {
+      format.labels <- function(x) {
+        x
+      }
+    }
+    plt <- ggplot(plot.df) +
+      geom_segment(size=6, color=bar.color, aes(x=min.v, xend=max.v, y=pos, yend=pos)) +
+      annotate('segment', x=base,xend=base,y=0,yend=length(unique(plot.df$param))+.44,
+               color='orange',
+               linetype='dashed') +
+      annotate('segment', x=base,xend=base,y=length(unique(plot.df$param))+.44,yend=length(unique(plot.df$param))+.45,
+               arrow = arrow(length=unit(0.30,"cm"), ends="last", type = "closed",),
+               color='orange') +
+      geom_vline(xintercept=0, color='black', linetype='dashed') +
+      xlab(x.label) +
+      ylab('') +
+      scale_x_continuous(labels=format.labels) +
+      scale_y_continuous(
+        breaks=breaks,
+        labels=labels,
+        limits = c(0, length(unique(plot.df$param))+1),
+        oob=scales::squish_infinite) +
+      theme_minimal() +
+      theme(panel.grid.minor = element_blank())
+    if (!use.nhb) {
+      plt <- plt +
+        geom_vline(xintercept=WTP[1], color='red', linetype=2)
+    }
+  } else {
+    plt <- plot +
+      geom_segment(data=plot.df, size=3, color=bar.color, aes(x=min.v, xend=max.v, y=pos, yend=pos))
+  }
+  
+  return(plt)
 }
 
 shinyApp(ui = ui, server = server)
