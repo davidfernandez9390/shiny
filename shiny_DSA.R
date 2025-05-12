@@ -59,8 +59,15 @@ ui <- fluidPage(
   )
 )
 
-# Server
+#server
 server <- function(input, output, session) {
+  # Valors reactius: un tipus de llista que emmagatzemarà les funcions del model quan es carregui de forma reactiva:
+  model_funs <- reactiveValues(
+    get.parameters = NULL,
+    get.strategies = NULL,
+    run.simulation = NULL
+  )
+  
   #selecció del model i càrrega de paràmetres i estratègies
   observeEvent(input$load_model, {  
     selected_model_info <- get.models.repo()[[which(sapply(get.models.repo(), function(x) x$name) == input$selected_model)]]
@@ -68,135 +75,178 @@ server <- function(input, output, session) {
       showNotification("Choose a valid model", type = "error")
       return()
     }
+    
+    #selecció del path corresponent i si no existeix clonat desde GIT:
     model_path <- file.path("models_cloned", input$selected_model)
     if (!dir.exists(model_path)) {
-      showNotification(paste("cloning repository:", input$selected_model), type = "message")
-      git2r::clone(selected_model_info$url, local_path = model_path)
+      showNotification(paste("cloning repository:", input$selected_model), type = "message") #missatge de clonació
+      git2r::clone(selected_model_info$url, local_path = model_path) #clonació desde GIT si toca
     } else {
-      showNotification("model already existing in PC", type = "warning")
+      showNotification("model already existing in PC", type = "warning") #missatge que ja hi ha el directori
     }
-    model_dir <- file.path(model_path)
-    rm(list = c("run.simulation", "get.strategies", "get.parameters"), envir = .GlobalEnv)
-    withr::with_dir(model_dir, {
-      source("shiny_interface.R", local = FALSE)
+    
+    # Creació d'un entorn aïllat (temporal perquè cada vegada que es carrega un model es genera de nou):
+    temp_env <- new.env()
+    withr::with_dir(model_path, {
+      source("shiny_interface.R", local = temp_env)
     })
+    
+    # assignar les funcions de l'entorn al Reactive Values per poder-los emprar en la shiny:
+    model_funs$get.parameters <- temp_env$get.parameters
+    model_funs$get.strategies <- temp_env$get.strategies
+    model_funs$run.simulation <- temp_env$run.simulation
     
     #càrrega d'estratègia de referència (per defecte la primera)
     output$ref_strategies_ui <- renderUI({
+      req(model_funs$get.strategies)
       selectInput("ref_strategy", "Reference strategy:",
-                  choices = get.strategies(),
-                  selected = get.strategies()[1])
+                  choices = model_funs$get.strategies(),
+                  selected = model_funs$get.strategies()[1])
     })
     
     #càrrega d'estatreagia alternativa (per defecte la segona)
     output$alt_strategies_ui <- renderUI({
+      req(model_funs$get.strategies)
       selectInput("alt_strategy", "Alternative strategy:",
-                  choices = get.strategies(),
-                  selected = get.strategies()[2])
+                  choices = model_funs$get.strategies(),
+                  selected = model_funs$get.strategies()[2])
     })
     
-    #Selecció dels paràmetres pel seu stratum:
-    parameters <- get.parameters()
-    stratified_params <- split(parameters, sapply(parameters, function(p) p$stratum %||% "General Parameters"))
+    # Selecció dels paràmetres i Creació del shinyTree amb agrupació per classe (només visual)
+    req(model_funs$get.parameters)
+    parameters <- model_funs$get.parameters() #parameters conté la llista de llistes del get.parameters()
+    class_grouped_params <- split(parameters, sapply(parameters, function(p) p$class %||% "General Parameters")) #class_grouped_params: llista on cada element és una class associada a la llista de params del grup.
     
     # Es generen els noms de les branques de l'arbre
-    tree_list <- lapply(names(stratified_params), function(stratum) {
-      params <- stratified_params[[stratum]]
-      setNames(as.list(rep(NA, length(params))), sapply(params, function(p) p$name))
+    tree_list <- lapply(class_grouped_params, function(param_group) { #param_group es l'iteració per grups de la llista class_grouped_params
+      unique_names <- unique(sapply(param_group, function(p) p$name)) #i amb sapply p$name s'agafen tots els noms dels paràmetres i amb unique s'eliminen les duplicacions dels estratificats
+      setNames(as.list(rep(NA, length(unique_names))), unique_names) # es genera un vector amb NAs de la mida del noms unics dels parametres. Després, amb as.list es genera a llista i amb setNames s'associen com a claus els noms dels params als NA i cada llista correspon a una class. 
     })
-    names(tree_list) <- names(stratified_params)
-    
-    output$parameter_tree <- renderTree({
-      tree_list
-    })
+    #mostrar el shinytree
+    output$parameter_tree <- renderTree({ tree_list })
   })
   
-  #Reactive (per ser usable fora) per seleccoinar els valors dels paràmetres del get.parameters
-  selected_base_values <- reactive({
-    req(exists("get.parameters"))
-    all_params <- get.parameters()
-    param_list <- list()
-    for (p in all_params) {
-      param_list[[p$name]] <- p$base.value
+  # reactive per generar una llista de tots els noms de paràemtres, si hi ha paràmetre la clau d'un paràmetre te com a valor una llista amb valor per cada estrat.
+  # aquesta estructura és idèntica a la que s'ha de passar al run.simulation()
+  
+  all_param_values <- reactive({
+    req(model_funs$get.parameters)  
+    parameters <- model_funs$get.parameters()  # Obtenim tots els paràmetres del model
+    param_list <- list()  # Inicialitzem la llista on guardarem els valors base
+    
+    for (p in parameters) {  # Iterem sobre cada "entrada" del get.parameters()
+      pname <- p$name  # Agafem el nom del paràmetre
+      
+      if (!is.null(p$stratum)) {  # Si el paràmetre està estratificat...
+        if (is.null(param_list[[pname]])) param_list[[pname]] <- list()  # Creem subllista si no existeix
+        param_list[[pname]][[p$stratum]] <- p$base.value  # Assignem valor base a l’estrat concret
+      } else {
+        param_list[[pname]] <- p$base.value  # Si no té estrats, assignem valor base directament
+      }
     }
-    return(param_list)
+    
+    return(param_list)  # Retornem la llista final amb valors base
   })
   
-  #resultats del botó RUN:
-  results <- eventReactive(input$run, {
-    req(input$ref_strategy, input$alt_strategy, input$parameter_tree)
+  
+  # CÀLCUL DE RESULTATS PELS PARÀMETRES:
+    results <- eventReactive(input$run, {
+    # Assegurar que es té el que cal
+    req(input$ref_strategy, input$alt_strategy, input$parameter_tree, model_funs$run.simulation)
     
-    #nou nom per la llista de valors base dels paràmetres del reactive anterior
-    base_pars <- selected_base_values()
+    # Agafem tots els valors base des del reactive anterior.
+    base_pars <- all_param_values()
     
-    #selecció (i conversió a vector simple) dels noms dels paràmetres marcats en l'arbre
-    selected_tree <- get_selected(input$parameter_tree, format = "names")
-    selected_param_names <- unlist(selected_tree)
+    # Noms seleccionats de l'arbre (format pla)
+    selected_tree <- get_selected(input$parameter_tree, format = "names") #retorna els valors seleccionats però en l'estructura complexa de l'arbre
+    selected_param_names <- unlist(selected_tree) #amb unlist s'aplana l'estructura de l'arbre per obtenir els noms en vector de strings de noms
     
-    variation <- input$variation_percent / 100
+    variation <- input$variation_percent / 100  # variació
     ref <- input$ref_strategy
     alt <- input$alt_strategy
     
+    # Comprovem que les dues estratègies no siguin iguals
     if (ref == alt) {
       showNotification("Reference strategy cannot be the same as the alternative strategy.", type = "error")
       return(NULL)
     }
     
-    results_list <- list() #on s'emmagatzema el que fa el bucle for
+    # Bloc per agrupar els paràmetres pel seu nom
+    all_params <- model_funs$get.parameters() #el get.parameters() sencer del shiny_interface.R
+    grouped_params <- split(all_params, sapply(all_params, function(p) p$name)) #s'agrupen els paràmetres pel nom i a cada nom se li assigna una llista amb llistes per cada estrat
     
-    #es recorre el vector de noms (selected_param_names) per 
-    for (pname in selected_param_names) {
-      if (!pname %in% names(base_pars)) next  #si el nom de selected_param_names està entre els noms dels params del get.parameters continua
+    results_list <- list()  # Per emmagatzemar els resultats
+    
+    for (pname in selected_param_names) {  # Iterem per cada nom de paràmetre seleccionat a l'arbre (en el vector selected_param_names)
+      param_group <- grouped_params[[pname]] #filtrem el nom del paràmetre per retornar una llista amb tantes llistes com estrats (dintre de cada hi ha el name, stratum, class..)
+      if (is.null(param_group)) next  # Si no hi ha grup definit, el saltem (però en principi sempre hi haurà perque cada nom de paràmetre s'ha generat com a grup)
       
-      #valor base del nom del paràmetre
-      base_value <- base_pars[[pname]]
+      ### FER EL RUN.SIMULATION AMB -% DELS PARAMETRES SELECCIONATS ###
+      pars_minus <- base_pars  # Copiem la configuració base del reactive all_params_value()
       
-      #Simulació pel % per sota
-      pars_minus <- base_pars
-      pars_minus[[pname]] <- base_value * (1 - variation) #canvi dels valors pel càlcul del % inferior
-      res_minus <- run.simulation(c(ref, alt), pars_minus)$summary #df amb el summary del run.simulation amb els nous valors
-      res_minus$param <- pname 
-      res_minus$param.value <- base_value * (1 - variation) #columna amb el valor després del % de variació
+      # Modifiquem només els valors d'aquest paràmetre, conservant estructura 
+      for (p in param_group) {
+        if (!is.null(p$stratum)) {
+          # Si hi ha estratificació, assegurem que la subllista existeix
+          if (is.null(pars_minus[[pname]])) pars_minus[[pname]] <- list()
+          pars_minus[[pname]][[p$stratum]] <- p$base.value * (1 - variation) #si el paràmetre té estrat s'accedeix al valor de l'estrat i es canvia on toca
+        } else {
+          pars_minus[[pname]] <- p$base.value * (1 - variation) #si el paràmetre no té estrat es canvia el valor tal qual
+        }
+      }
       
-      #Simulació pel % per sobre
-      pars_plus <- base_pars
-      pars_plus[[pname]] <- base_value * (1 + variation)
-      res_plus <- run.simulation(c(ref, alt), pars_plus)$summary
+      # Executem la simulació amb els valors modificats a la baixa
+      res_minus <- model_funs$run.simulation(c(ref, alt), pars_minus)$summary
+      res_minus$param <- pname
+      res_minus$param.value <- round(param_group[[1]]$base.value * (1 - variation), 4)
+      
+      ### FER EL RUN.SIMULATION AMB +% DELS PARAMETRES SELECCIONATS ###
+      pars_plus <- base_pars  
+      
+      for (p in param_group) {
+        if (!is.null(p$stratum)) {
+          if (is.null(pars_plus[[pname]])) pars_plus[[pname]] <- list()
+          pars_plus[[pname]][[p$stratum]] <- p$base.value * (1 + variation)
+        } else {
+          pars_plus[[pname]] <- p$base.value * (1 + variation)
+        }
+      }
+      
+      # Executem la simulació amb els valors modificats cap amunt
+      res_plus <- model_funs$run.simulation(c(ref, alt), pars_plus)$summary
       res_plus$param <- pname
-      res_plus$param.value <- base_value * (1 + variation)
+      res_plus$param.value <- round(param_group[[1]]$base.value * (1 + variation), 4)
       
-      #per cada cicle s'emmagatzemen les files en format llista
+      # Afegim els resultats a la llista
       results_list <- c(results_list, list(res_minus, res_plus))
     }
     
-    #s'uneix tot per tenir un dataframe
+    # Unir tots els resultats en un únic data frame
     do.call(rbind, results_list)
   })
+  
+  
   
   #es genera un dataframe selecionant només les files de estrategia alternativa i afegint columnes:
   df_alt <- reactive({
     taula_resultats <- results()
-    alt_rows <- seq(2, nrow(taula_resultats), by = 2) #se seleccionen les files de la estrategia alt. (les parelles)
+    req(taula_resultats)
+    
+    alt_rows <- seq(2, nrow(taula_resultats), by = 2) #saltar de dos en dos per mostrar només les files de l'estratègia alternativa
     df_alt <- taula_resultats[alt_rows, ]
     ref_rows <- alt_rows - 1
     df_ref <- taula_resultats[ref_rows, ]
     
-    #càlcul de IC, IE, ICER, NHB
-    ref.IC <- df_alt$C - df_ref$C
-    ref.IE <- df_alt$E - df_ref$E 
-    ref.ICER <- ref.IC / ref.IE
-    ref.NHB <- (ref.IE - (ref.IC / input$wtp))
-    
-    #s'afageixen les columnes de IC, IE, ICER i NHB
-    df_alt$IC <- ref.IC
-    df_alt$IE <- ref.IE 
-    df_alt$ICER <- ref.ICER
-    df_alt$NHB <- ref.NHB
-    
+    # Càlculs de IC, IE, ICER, NHB
+    df_alt$IC <- df_alt$C - df_ref$C
+    df_alt$IE <- df_alt$E - df_ref$E 
+    df_alt$ICER <- df_alt$IC / df_alt$IE
+    df_alt$NHB <- (df_alt$IE - (df_alt$IC / input$wtp))
     
     df_alt
   })
   
+  # Taula de resultats
   output$resultsTable <- renderTable({
     validate(
       need(input$ref_strategy != input$alt_strategy, 
@@ -205,7 +255,7 @@ server <- function(input, output, session) {
     )
     df <- df_alt()
     
-    # Mostrar tots els números de la taula amb 4 decimals
+    # Formatejar números amb 4 decimals
     df[] <- lapply(df, function(col) {
       if (is.numeric(col)) sprintf("%.4f", col) else col
     })
@@ -213,25 +263,28 @@ server <- function(input, output, session) {
     df
   })
   
+  # Download dels resultatss
   output$downloadData <- downloadHandler(
     filename = function() {
-      paste("results_table", ".csv", sep = "")
+      paste("results_table_", input$selected_model, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv", sep = "")
     },
     content = function(file) {
       write.csv(results(), file, row.names = FALSE)
     }
   )
   
+  # Gràfic de resultats
   output$resultsPlot <- renderPlotly({
     validate(
       need(input$ref_strategy != input$alt_strategy, 
            "Reference strategy cannot be the same as the alternative strategy."),
       need(!is.null(results()), "No results to display.")
     )
-    results <- df_alt()
-    tornado_plot <- plot.tornado(results, WTP = input$wtp, use.nhb = (input$icer == "NHB"))
+    results_data <- df_alt()
+    tornado_plot <- plot.tornado(results_data, WTP = input$wtp, use.nhb = (input$icer == "NHB"))
     ggplotly(tornado_plot)
   })
 }
 
+# Execució de l'aplicació
 shinyApp(ui = ui, server = server)
