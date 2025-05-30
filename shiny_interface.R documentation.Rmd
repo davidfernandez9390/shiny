@@ -1,0 +1,174 @@
+---
+title: "shiny_interface documentation"
+author: "David Fernández"
+date: "2025-05-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Shiny Application for the Interactive Evaluation of Simulation Models for Cost-Effectiveness Analysis
+
+Cost-effectiveness analysis models simulate the progression of diseases, such as cancer, over time under different screening and/or treatment strategies to help determine the most appropriate strategy considering both health quality and economic cost. To properly describe the disease process, these models require parameters whose values may vary and need to be represented and analyzed from different perspectives.
+
+Assuming a simulation model already exists, the shiny_interface.R file must be designed to act as an intermediary layer between the existing model and the different Shiny applications that allow interactive evaluation of various scenarios
+
+There are 3 applications that use the same shiny_interface.R to operate:
+
+-   `shiny_cost_effectiveness.R:` base case designed to display cost-effectiveness simulations (€/QALYs) defined by the model, allowing users to select different strategies and parameter values to test various scenarios. Returns a cost-effectiveness plot and a results table.
+
+-   `shiny_DSA.R:` performs deterministic sensitivity analysis to evaluate the impact of different parameters by comparing two selected strategies (a reference and an alternative). Returns a tornado plot and a results table.
+
+-   `shiny_PSA.R:` performs probabilistic sensitivity analysis, running the model iteratively between two strategies (reference and alternative) to evaluate parameter uncertainty. Returns a scatter plot, an acceptability plot and a results table.
+
+## shiny_interface.R
+
+This file acts as an intermediate layer between the model and the applications for the base case, DSA, and PSA. To function, it requires **3 functions** with the following structure:
+
+### get.strategies():
+
+Returns the strategy names required by the `run.simulation()` function. It can have two configurations depending on whether the shiny_cost_effectiveness.R.R displays grouped strategies in the Shiny:Tree input or not.
+
+-   **Simple configuration:** returns a character vector with strategy names.
+
+-   **Grouped configuration:** returns a list of vectors named by group or class names.
+
+This distinction only applies to shiny_cost_effectiveness.R.R tree input. shiny_DSA.R and shiny_PSA.R treat strategies the same way in their selectInput components but still require one of these structures:
+
+```{r}
+
+# Simple configuration example:
+get.strategies <- function() {
+  return(
+    c('no treatment', 'no screening', 'treatment')
+  )
+}
+
+# Grouped configuration example:
+get.strategies <- function() {
+  return(list(
+    type_1 = c('no_treatment'),
+    type_2 = c('screening', 'treatment'),
+    type_3 = c('strategy_A', 'strategy_B', 'strategy_C')
+  ))
+}
+
+# Both formats are valid for cost_effectivenes_app.R, shiny_DSA.R and shiny_PSA.R but will show differences only in cost_effectivenes_app.R
+
+```
+
+### get.parameters():
+
+Returns the model parameters needed by the `run.simulation()` function. It must always return a "list of lists", where each sublist represents a parameter with the following components:
+
+**Required:**
+
+-   `name:` parameter name
+-   `base.value:` base numeric value of the parameter
+
+**Optional:**
+
+-   `stratum:` name of the stratum if parameters are stratified. In the shiny_cost_effectiveness.R.R input, stratified parameters are grouped into tabs by stratum. Parameters without stratum go into a generic "Constant parameters" tab. If no parameters are stratified, no tab panel is created.
+-   `distribution:` type of probability distribution. This is only used in the PSA app, which assigns 'normal' by default if the distribution is not specified. Allowed values: `'beta'`, `'normal'`, `'lognormal'`, `'gamma'`, `'exponential'`.
+-   `class`: used to group parameters in the Shiny tree input of shiny_DSA.R and shiny_PSA.R. If not defined, they go into a generic "General Parameters" node.
+
+```{r}
+get.parameters <- function() {
+  # list of lists. Each sublist represents one parameter with:
+  # name = parameter name (required)
+  # base.value = numeric base value (required)
+  # stratum = stratum name (optional)
+  # class = classification group in Shiny input (optional)
+  # distribution = one of: 'beta', 'normal', 'lognormal', 'gamma', 'exponential'
+  return(list(
+    list(
+      name='p.healthy.cancer', # example of stratified parameter
+      base.value=0.9,
+      stratum="30-35", 
+      class="probability",
+      distribution = "beta"
+    ),
+    list(
+      name='p.healthy.cancer', # example of stratified parameter
+      base.value=1,
+      stratum="35-40",
+      class="probability",
+      distribution = "gamma"
+    ),
+    list(
+      name='p.healthy.death',
+      base.value=0.005,
+      class="probability"
+    ),
+    list(
+      name='p.cancer.death',
+      base.value=0.5,
+      class="probability"
+    )
+  ))
+}
+
+```
+
+#### Stratified Parameters:
+
+If parameters are stratified, get.parameters() should return sublists with the same "name" but different "stratum" values. The Shiny app will internally manage stratified parameters by generating a list where each stratified parameter contains values by stratum. In shiny_cost_effectiveness.R these are shown as separate tabs in the input. In shiny_DSA.R and shiny_PSA.R, the Shiny tree input shows only one selectable leaf per parameter name, even for stratified ones, which are still processed internally with all strata values.
+
+### run.simulation():
+
+This function performs the actual cost-effectiveness simulation. It receives the strategies and parameters as processed by each Shiny app.
+
+#### What run.simulation must return:
+
+After performing the simulation using the procedures defined in the model, the `run.simulation()` function must return a list containing a data frame named `summary`. This object will be used to generate the results of the cost-effectiveness analysis. The data frame returned by `run.simulation()` must include the following columns:
+
+-   `strategy`: the name of the strategy being analysed.\
+-   `C`: the cost of the analysed strategy based on the specified parameter values.\
+-   `E`: the effectiveness of the analysed strategy based on the specified parameter values.
+
+#### Argument Structure for run.simulation():
+
+##### strategies:
+
+A character vector representing the strategy name(s). In shiny_cost_effectiveness.R the selected strategies in the tree input become a character vector. In shiny_DSA.R and shiny_PSA.R, only two strategies (reference and alternative) are selected using selectInput, returning character strings directly.
+
+##### pars:
+
+In all three apps, the output of get.parameters() is converted into a named list of parameter values. Stratified parameters are structured as a list of values by stratum.
+
+```{r}
+# Example structure:
+pars = list(
+       'p.healthy.cancer'= list('30-35' = 0.05, '35-40' = 0.1), #stratified parameter (2 strata)
+       'cost.treatment' = 1000, #non-stratified parameters
+       'p.treatment.effective' = 0.52
+)
+
+# Access values:
+# - Stratified: pars[['p.healthy.cancer']][['35-40']]
+# - Non-stratified: pars[['cost.treatment']]
+
+```
+
+#### Example of run.simulation():
+
+```{r}
+run.simulation <- function(strategies, pars) {
+  # simulate() is defined in the simulation model already existing.
+  results <- simulate(strategies,
+                      p.healthy.cancer_30_35=pars[['p.healthy.cancer']][['30-35']],
+                      p.healthy.cancer_35_40=pars[['p.healthy.cancer']][['35-40']],
+                      p.healthy.death=pars[['p.healthy.death']],
+                      p.cancer.death=pars[['p.cancer.death']],
+                      p.screening.effective=pars[['p.screening.effective']],
+                      p.treatment.effective=pars[['p.treatment.effective']],
+                      cost.screening=pars[['cost.screening']],
+                      cost.cancer.treatment=pars[['cost.cancer.treatment']],
+                      utility.cancer=pars[['utility.cancer']],
+                      simulated.years=pars[['simulated.years']],
+                      discount=pars[['discount']])
+  return(results)
+}
+```

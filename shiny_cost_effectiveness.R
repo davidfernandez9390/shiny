@@ -1,5 +1,5 @@
 # Instal·lació i càrrega de paquets necessaris
-list.of.packages <- c("shiny", "ggplot2", "plotly", "readxl", "writexl", "shinycssloaders")
+list.of.packages <- c("shiny", "ggplot2", "plotly", "readxl", "writexl", "shinycssloaders", "purrr", "shinyTree")
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)  # Instal·la els paquets que no estiguin instal·lats
 lapply(list.of.packages, require, character.only = TRUE)  # Carrega tots els paquets
@@ -14,9 +14,11 @@ get.models.repo <- function(){
   ))
 }
 
-# BLOC DEL UI
+#_______________________________________________________________________________________________________________________________
+#___________________________________________________________ UI ________________________________________________________________
+
 ui <- fluidPage(
-  titlePanel("Cost-effectiveness simulation"),  
+  titlePanel("Cost-effectiveness Analysis"),  
   
   #Estil de la shiny amb barra lateral
   sidebarLayout(
@@ -29,22 +31,24 @@ ui <- fluidPage(
       actionButton("load_model", "Load a model"),  # Botó per carregar/clonar el model des de GitHub
       
       h4("Strategy selection:"),  # Secció per escollir estratègies
+      # shinyTree::shinyTree("strategies", checkbox = TRUE, theme = "proton", themeIcons = FALSE), # si es vol sense spinner descomentar aquesta línia i comentar el bloc del spinner següent:
       shinycssloaders::withSpinner(
-        uiOutput("strategies_ui"),  # Espai per mostrar les estratègies disponibles
-        type=4, size=0.3,
-        caption = div(strong("loading model"))),
+        #estructura en tree per seleccionar les estrategies
+        shinyTree::shinyTree("strategies", checkbox = TRUE, theme = "proton", themeIcons = FALSE)
+        , 
+        type=4, size=0.2,
+        proxy.height = "50px",
+        caption = div(strong("Load a model to display its strategies."))),
       
-      # Botons per seleccionar/deseleccionar totes les estratègies
-      div(style = "display: flex; gap: 4px;",
-          actionButton("select_all", "Select All"),
-          actionButton("deselect_all", "Deselect All")
-      ),
+      
       
       h4("Parameter values:"),  # Paràmetres del model
+      #uiOutput("parameters_tabs"), # si es vol sense spinner descomentar aquesta línia i comentar el bloc del spinner següent:
       shinycssloaders::withSpinner(
         uiOutput("parameters_tabs"),  # Inputs pels valors dels paràmetres
-        type=4, size=0.3,
-        caption = div(strong("loading model"))),
+        type=4, size=0.2,
+        proxy.height = "50px", #proxy.height per controlar la mida que ocupa l'espai buit on va el spinner
+        caption = div(strong("Load a model to display its parameters"))),
       
       actionButton("reset", "Reset to Default")  # Botó per reiniciar els valors per defecte
     ),
@@ -62,7 +66,9 @@ ui <- fluidPage(
   )
 )
 
-# BLOC DEL SERVER:
+#_______________________________________________________________________________________________________________________________
+#___________________________________________________________ SERVER ____________________________________________________________
+
 server <- function(input, output, session) {
   
   # Quan es clica "Load a model"
@@ -96,12 +102,28 @@ server <- function(input, output, session) {
       source("shiny_interface.R", local = FALSE)
     })
     
-    # Actualitza les estratègies del model seleccionat
-    output$strategies_ui <- renderUI({
-      checkboxGroupInput("strategies", "Select strategies:",
-                         choices = get.strategies(),
-                         selected = get.strategies())
-    })
+  
+    
+    strategies <- get.strategies() #parameters conté la llista de llistes del get.strategies()
+    
+    #Construcció del shiny:tree:
+    # quan el get.strategies() retorna una llista de vectors (estructura d'estrategies agrupades): 
+    #nota(provar afegir condicions tipus && !is.null(names(strategies)) && length(strategies)>0 que no se per què no funcionen per obviar llistes buides)
+    if (is.list(strategies) && all(sapply(strategies, is.atomic))) { #cada element de la llista és un vector atomic (amb is.vector les llistes donen TRUE)
+      tree_list <- lapply(strategies, function(type) {
+        setNames(as.list(rep(NA, length(type))), type)
+      })
+      # quan el get.strategies() és un vector simple de strings d'estratègies
+    } else if (is.vector(strategies)) {
+      tree_list <- setNames(as.list(rep(NA, length(strategies))), strategies)
+    } else {
+      showNotification("The function get.strategies() from the model is not valid. It must return either a character vector or a list of character vectors if strategies are grouped.", type = "error")
+      return(NULL)
+    }
+    # 
+    
+    output$strategies <- renderTree({ tree_list })
+    
     
     # Actualitza els inputs dels paràmetres agrupats per estrats per pestanyes
     output$parameters_tabs <- renderUI({
@@ -123,9 +145,7 @@ server <- function(input, output, session) {
             # Crea un numericInput amb id únic per paràmetre/estrat
             numericInput(inputId = input_id,
                          label = p$name,
-                         value = p$base.value,
-                         min = 0,
-                         max = ifelse(startsWith(p$name, "p."), 1, p$base.value * 4)) #!! al final potser és innecessari, millor no fer max.
+                         value = p$base.value) 
           })
         )
       })
@@ -138,15 +158,6 @@ server <- function(input, output, session) {
     })
   })
   
-  # Botó "Select All": selecciona totes les estratègies
-  observeEvent(input$select_all, {
-    updateCheckboxGroupInput(session, "strategies", selected = get.strategies())
-  })
-  
-  # Botó "Deselect All": desselecciona totes les estratègies
-  observeEvent(input$deselect_all, {
-    updateCheckboxGroupInput(session, "strategies", selected = character(0))
-  })
   
   # Botó per fer reset i tornar als valors base. 
   observeEvent(input$reset, {
@@ -160,9 +171,12 @@ server <- function(input, output, session) {
     })
   })
   
+  
+  #___________________________________________________________ RUN _______________________________________________________________________
+  
   # Execució de la simulació quan es clica "Run simulation"
   results <- eventReactive(input$run, {  # Reactiu que s'executa quan es prem el botó "Run simulation"
-    
+    req(get.strategies(), get.parameters(), run.simulation(), selected_slices)
     progress <- shiny::Progress$new()  # Crea una nova barra de progrés per mostrar l'estat de la simulació
     on.exit(progress$close())  # Quan acabi aquesta funció, es tanca automàticament la barra de progrés
     
@@ -194,23 +208,44 @@ server <- function(input, output, session) {
     # Inicialitza una llista per guardar els resultats de cada estratègia
     results_list <- list()
     
-    for (i in seq_along(input$strategies)) {  # Itera sobre el numero d'estratègies seleccionades per l'usuari (amb seq_along no cal que faci lenght)
-      strategy <- input$strategies[i]  # Obté el nom de l’estratègia
+    #***********************************************************************************
+    #construcció d'un vector simple de noms d'estrategies seleccionades:
+    #selected_strategies <- unlist(get_selected(input$strategies, format = "names"))
+    selected_slices <- get_selected(input$strategies, format = "slices") 
+    
+    # Obtenim la profunditat de cada camí
+    depths <- map_int(selected_slices, vec_depth) #github: https://github.com/shinyTree/shinyTree/issues/98
+    
+    # Trobem la profunditat màxima (les fulles estan al final)
+    max_depth <- max(depths)
+    
+    # Filtra només els camins que tenen la màxima profunditat
+    leaf_paths <- selected_slices[depths == max_depth]
+    
+    # Ara, extreu el nom de la fulla (l'últim nom de cada camí) 
+    selected_strategies <- map_chr(leaf_paths, ~ tail(names(flatten(.)), 1)) #names per seleccionar els elements, flatten(.) per aplanar tota l'estructura, i tail( ,1) per agfar l'ultim, el més profund 
+    
+    #*****************************************************************************************************
+    
+    for (i in seq_along(selected_strategies)) {  # Itera sobre el numero d'estratègies seleccionades per l'usuari (amb seq_along no cal que faci lenght)
+      strategy <- selected_strategies[i]  # Obté el nom de l’estratègia
       result <- run.simulation(strategy, params)  # Executa la simulació amb aquesta estratègia i els paràmetres
       
       results_list[[i]] <- result$summary  # Guarda el resum dels resultats en la llista
       
       # Actualitza la barra de progrés segons el progrés de l'iteració
-      progress$inc(1 / length(input$strategies), 
-                   detail = paste("Processing:", strategy, round(i / length(input$strategies) * 100), "% done"))
+      progress$inc(1 / length(selected_strategies), 
+                   detail = paste("Processing:", strategy, round(i / length(selected_strategies) * 100), "% done"))
     }
     
     return(do.call(rbind, results_list))  # Combina tots els resultats en una sola taula
   })
   
+  #__________________________________________________________________________________________________________________________
   
   # Mostra la taula de resultats
   output$resultsTable <- renderTable({
+    req(results())
     taula_resultats <- results()
     ce_analysis <- CEAModel::analyzeCE(taula_resultats, plot = TRUE)
     ce_analysis$summary

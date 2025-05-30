@@ -16,27 +16,35 @@ get.models.repo <- function(){
   ))
 }
 
-# UI
+#estil del text en el input:
+style_1 = "color: #191970; font-weight: bold; font-family: Segoe UI;" #títol de secció
+
+
+
+#_______________________________________________________________________________________________________________________________
+#___________________________________________________________ UI ________________________________________________________________
+# UI:
+
 ui <- fluidPage(
-  titlePanel("Cost-effectiveness simulation"),
+  titlePanel(h2("Deterministic Sensitivity Analysis:", style = style_1)), 
   sidebarLayout(
     sidebarPanel(
-      h4("Model selection:"),
+      h4("Model selection:", style = style_1),
       selectInput("selected_model", "Choose model:", 
                   choices = sapply(get.models.repo(), function(x) x$name)),
       actionButton("load_model", "Load a model"),
       
-      h4("Strategy selection:"),
+      h4("Strategy selection:", style = style_1),
       uiOutput("ref_strategies_ui"),
       uiOutput("alt_strategies_ui"),
       
-      h4("Variation (%)", style = "color: #191970; font-weight: bold; font-family: Segoe UI;"),
+      h4("Variation (%)", style = style_1),
       sliderInput("variation_percent", label=NULL, step=10, min = 0, max = 100, value = 20),
       
       h4("WTP:", style = "color: #191970; font-weight: bold; font-family: Segoe UI;"),
       numericInput("wtp", label=NULL, value = 22000),
       
-      h4("Parameter selection:"),
+      h4("Parameter selection:", style = style_1),
       #estructura en tree per seleccionar els paràmetres
       shinyTree::shinyTree("parameter_tree", checkbox = TRUE, theme = "proton", themeIcons = FALSE)
     ),
@@ -54,12 +62,16 @@ ui <- fluidPage(
       br(),
       h4("Table of results:"),
       tableOutput("resultsTable"), 
+      uiOutput("note"), #afegir una nota que surt només quan es clica el RUN per dir que * vol dir que el paràmetre té estrats en la taula de resultats
       downloadButton("downloadData", "Download")
     )
   )
 )
 
-#server
+#_______________________________________________________________________________________________________________________________
+#___________________________________________________________ SERVER ____________________________________________________________
+
+
 server <- function(input, output, session) {
   # Valors reactius: un tipus de llista que emmagatzemarà les funcions del model quan es carregui de forma reactiva:
   model_funs <- reactiveValues(
@@ -68,13 +80,13 @@ server <- function(input, output, session) {
     run.simulation = NULL
   )
   
-  #selecció del model i càrrega de paràmetres i estratègies
+  # LOAD MODEL -> selecció del model i càrrega de paràmetres i estratègies
   observeEvent(input$load_model, {  
     selected_model_info <- get.models.repo()[[which(sapply(get.models.repo(), function(x) x$name) == input$selected_model)]]
     if (is.null(selected_model_info$url)) {
       showNotification("Choose a valid model", type = "error")
       return()
-    }
+    } 
     
     #selecció del path corresponent i si no existeix clonat desde GIT:
     model_path <- file.path("models_cloned", input$selected_model)
@@ -91,10 +103,32 @@ server <- function(input, output, session) {
       source("shiny_interface.R", local = temp_env)
     })
     
-    # assignar les funcions de l'entorn al Reactive Values per poder-los emprar en la shiny:
     model_funs$get.parameters <- temp_env$get.parameters
     model_funs$get.strategies <- temp_env$get.strategies
     model_funs$run.simulation <- temp_env$run.simulation
+    
+    # Obtenir les estratègies de la funció del model
+    returned_strategies <- model_funs$get.strategies()
+    
+    # Validar i adaptar el format de les estratègies retornades
+    if (is.list(returned_strategies) && all(sapply(returned_strategies, is.character))) {
+      # Si és una llista de vectors de caràcters (grups d'estratègies), aplanar-la
+      model_funs$get.strategies <- function() {
+        unlist(returned_strategies, use.names = FALSE)
+      }
+    } else if (is.character(returned_strategies) && length(returned_strategies) >= 1) {
+      # Si ja és un vector de caràcters, mantenir-lo tal com està
+      model_funs$get.strategies <- function() {
+        returned_strategies
+      }
+    } else {
+      # Cas invàlid: ni vector ni llista de vectors
+      showNotification(
+        "The function get.strategies() from the model is not valid. It must return either a character vector or a list of character vectors if strategies are grouped.",
+        type = "error"
+      )
+      model_funs$get.strategies <- function() character(0)
+    }
     
     #càrrega d'estratègia de referència (per defecte la primera)
     output$ref_strategies_ui <- renderUI({
@@ -148,11 +182,18 @@ server <- function(input, output, session) {
     return(param_list)  # Retornem la llista final amb valors base
   })
   
-  
+  #___________________________________________________________ RUN _______________________________________________________________________
   # CÀLCUL DE RESULTATS PELS PARÀMETRES:
+  
     results <- eventReactive(input$run, {
+    
     # Assegurar que es té el que cal
-    req(input$ref_strategy, input$alt_strategy, input$parameter_tree, model_funs$run.simulation)
+    #req(input$ref_strategy, input$alt_strategy, input$parameter_tree, model_funs$run.simulation)
+    
+    #generar la nota de què els paràmetres amb estrats tenen * a la taula de resultats un cop es clica run.
+    output$note <- renderUI({
+      em(h5("Note: if parameter name is followed by *, it means it is a stratified parameter")) #amb em() es fa en cursiva (renderText no ho permet)
+      })
     
     # Agafem tots els valors base des del reactive anterior.
     base_pars <- all_param_values()
@@ -197,8 +238,8 @@ server <- function(input, output, session) {
       
       # Executem la simulació amb els valors modificats a la baixa
       res_minus <- model_funs$run.simulation(c(ref, alt), pars_minus)$summary
-      res_minus$param <- pname
-      res_minus$param.value <- round(param_group[[1]]$base.value * (1 - variation), 4)
+      res_minus$param <- ifelse(!is.null(param_group[[1]]$stratum), paste0(pname, "*"), pname)
+      res_minus$param.value <- param_group[[1]]$base.value * (1 - variation)
       
       ### FER EL RUN.SIMULATION AMB +% DELS PARAMETRES SELECCIONATS ###
       pars_plus <- base_pars  
@@ -214,8 +255,9 @@ server <- function(input, output, session) {
       
       # Executem la simulació amb els valors modificats cap amunt
       res_plus <- model_funs$run.simulation(c(ref, alt), pars_plus)$summary
-      res_plus$param <- pname
-      res_plus$param.value <- round(param_group[[1]]$base.value * (1 + variation), 4)
+      #res_plus$param <- pname
+      res_plus$param <- ifelse(!is.null(param_group[[1]]$stratum), paste0(pname, "*"), pname)
+      res_plus$param.value <- param_group[[1]]$base.value * (1 + variation)
       
       # Afegim els resultats a la llista
       results_list <- c(results_list, list(res_minus, res_plus))
@@ -225,9 +267,9 @@ server <- function(input, output, session) {
     do.call(rbind, results_list)
   })
   
+  #_________________________________________________________________________________________________________________________________
   
-  
-  #es genera un dataframe selecionant només les files de estrategia alternativa i afegint columnes:
+  #Reactive per fer la taula de resultats selecionant només les files de estrategia alternativa i afegint columnes:
   df_alt <- reactive({
     taula_resultats <- results()
     req(taula_resultats)
@@ -240,33 +282,44 @@ server <- function(input, output, session) {
     # Càlculs de IC, IE, ICER, NHB
     df_alt$IC <- df_alt$C - df_ref$C
     df_alt$IE <- df_alt$E - df_ref$E 
-    df_alt$ICER <- df_alt$IC / df_alt$IE
+    df_alt$ICER <- as.integer(df_alt$IC / df_alt$IE) #fem ICER com a enter perquè no calen decimals
     df_alt$NHB <- (df_alt$IE - (df_alt$IC / input$wtp))
     
-    df_alt
+    df_alt$strategy <- NULL #eliminem la columna strategy, C i E perquè no calen en el DSA
+    df_alt$C <- NULL
+    df_alt$E <- NULL
+    
+    return(df_alt)
   })
   
   # Taula de resultats
   output$resultsTable <- renderTable({
-    validate(
+    validate( #validate() per avisar de possibles ERRORS:
       need(input$ref_strategy != input$alt_strategy, 
            "Reference strategy cannot be the same as the alternative strategy."),
-      need(!is.null(results()), "No results to display.")
-    )
-    df <- df_alt()
+      need(!is.null(results()), "No results to display."),
+      need(!is.null(model_funs$run.simulation), "Load a model before to start"))
     
-    # Formatejar números amb 4 decimals
-    df[] <- lapply(df, function(col) {
-      if (is.numeric(col)) sprintf("%.4f", col) else col
-    })
+    df <- df_alt() #així no canviem el df_alt() que també necessita el renderPlotly() del gràfic de tornado
     
-    df
+    # Format de 2 o 4 decimals per cada columna concreta:
+    df$IC <- sprintf("%.4f", df$IC )
+    df$IE <- sprintf("%.4f", df$IE)
+    df$NHB <- sprintf("%.2f", df$NHB)
+    
+    # Formatejar números amb 4 decimals si es vol tenir en 4 decimals descomentar:
+    #df[] <- lapply(df, function(col) {
+      #if (is.numeric(col)) sprintf("%.4f", col) else col
+    #})
+    df <- df %>%
+      relocate(param, param.value, IC, IE, ICER, NHB) #es fa servir el relocate() de dyplr per mantenir sempre el mateix ordre (canviaven d'ordre les columnes en funció del model)
+    df #mostrar la taula en el Rendertable.
   })
   
   # Download dels resultatss
   output$downloadData <- downloadHandler(
     filename = function() {
-      paste("results_table_", input$selected_model, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv", sep = "")
+      paste("results_table_", input$selected_model, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv", sep = "") #per descarregar amb un nom per defecte de la data
     },
     content = function(file) {
       write.csv(results(), file, row.names = FALSE)
